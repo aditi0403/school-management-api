@@ -8,13 +8,17 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
-// Database connection
-const dbConfig = {
+// Database connection pool
+const pool = mysql.createPool({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME
-};
+    database: process.env.DB_NAME,
+    port: process.env.DB_PORT || 3306, // Default MySQL port, override if needed
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
+});
 
 // Haversine formula to calculate distance between two coordinates (in kilometers)
 function calculateDistance(lat1, lon1, lat2, lon2) {
@@ -50,16 +54,14 @@ app.post('/addSchool', async (req, res) => {
     }
 
     try {
-        const connection = await mysql.createConnection(dbConfig);
-        await connection.execute(
+        const [result] = await pool.execute(
             'INSERT INTO schools (name, address, latitude, longitude) VALUES (?, ?, ?, ?)',
             [name, address, latitude, longitude]
         );
-        await connection.end();
-        res.status(201).json({ message: 'School added successfully' });
+        res.status(201).json({ message: 'School added successfully', id: result.insertId });
     } catch (error) {
-        console.error('Error adding school:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        console.error('Error adding school:', error.message);
+        res.status(500).json({ error: `Failed to add school: ${error.message}` });
     }
 });
 
@@ -81,9 +83,7 @@ app.get('/listSchools', async (req, res) => {
     }
 
     try {
-        const connection = await mysql.createConnection(dbConfig);
-        const [schools] = await connection.execute('SELECT * FROM schools');
-        await connection.end();
+        const [schools] = await pool.execute('SELECT * FROM schools');
 
         // Calculate distance and sort
         const sortedSchools = schools.map(school => ({
@@ -93,8 +93,8 @@ app.get('/listSchools', async (req, res) => {
 
         res.json(sortedSchools);
     } catch (error) {
-        console.error('Error fetching schools:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        console.error('Error fetching schools:', error.message);
+        res.status(500).json({ error: `Failed to fetch schools: ${error.message}` });
     }
 });
 
